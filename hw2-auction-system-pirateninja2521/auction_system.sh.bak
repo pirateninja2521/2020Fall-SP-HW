@@ -1,0 +1,99 @@
+#!/bin/bash
+
+if [ $# -ne 2 ]; then
+    echo "usage: bash auction_system.sh [n_host] [n_player]"
+    exit
+fi
+
+n_host=$1
+n_player=$2
+
+for ((i=1; i<=$n_player; i++)); do
+    score[$i]=0
+done
+
+#Prepare FIFO files for all M hosts.
+cnt=0
+for ((i=0; i<=$n_host; i++)); do
+    PIPE[$i]="fifo_${i}.tmp"
+    if test -e "${PIPE[$i]}"; then 
+        #echo "${PIPE[$i]} exists."
+        rm "${PIPE[$i]}"
+    fi
+    mkfifo -m 777 ${PIPE[$i]}
+    key[$i]=$RANDOM
+    key_inv[key[$i]]=$i
+    if [ $i -ne 0 ]; then
+        cmd="./host ${i} ${key[$i]} 0"
+        $cmd &
+        exec 3<> fifo_1.tmp
+        cnt=$(($cnt+1))
+        deal[$cnt]=$i
+    fi
+done
+exec 3<> fifo_0.tmp
+# Generate  combinations of N players and assign to hosts via FIFO. Collect rankings from hosts and calculate the scores.
+total=0
+for a in $(seq 1 $n_player); do
+    for b in $(seq $(($a+1)) $n_player); do
+        for c in $(seq $(($b+1)) $n_player); do
+            for d in $(seq $(($c+1)) $n_player); do
+                for e in $(seq $(($d+1)) $n_player); do
+                    for f in $(seq $(($e+1)) $n_player); do
+                        for g in $(seq $(($f+1)) $n_player); do
+                            for h in $(seq $(($g+1)) $n_player); do                              
+                                total=$(($total+1))
+                                forhost[$total]="$a $b $c $d $e $f $g $h"                               
+                            done
+                        done
+                    done
+                done
+            done
+        done
+    done
+done
+echo $total
+echo ${forhost[1]}
+#while [ $now_cnt -le $total ]; do
+#    echo ${forhost[$now_cnt]} > "${PIPE[$now_cnt]}"
+
+#done
+
+if [ $n_host -ge $total ]
+then
+    for ((i=1; i<=$total; i++)); do
+        echo ${forhost[$i]} > "${PIPE[$i]}"
+        echo "-1 -1 -1 -1 -1 -1 -1 -1" > "${PIPE[$i]}"
+    done
+    now_line=0
+    while read -r line; do
+        #echo "$line"
+        #echo "###"
+        if [ $now_line -eq 0 ]; then
+            now_host=${key_inv[$line]}
+        else
+            now_player=$(echo "$line" | cut -d ' ' -f 1)
+            score[$now_player]=$((score[$now_player]+8-$(echo "$line" | cut -d ' ' -f 2)))
+        fi
+        now_line=$(($now_line+1))
+        if [ $now_line -eq 9 ]; then
+            now_line=0
+        fi
+    done < "fifo_0.tmp"
+fi
+
+for ((i=1; i<=$n_player; i++)); do
+    echo "${score[$i]}"
+done
+# After all combinations are hosted, send an ending message to all hosts forked.
+
+# Print the final scores ordered by player id (ascending) to stdout.
+
+# Remove FIFO files.
+
+for((i=0; i<=$n_host; i++))
+do
+    rm "${PIPE[$i]}"
+done
+
+# Wait for all forked process to exit.
